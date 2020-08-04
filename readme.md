@@ -1,3 +1,10 @@
+##Shortcuts
+To use this version of LoopFollow plese download the following iOS Shortcuts:
+https://www.icloud.com/shortcuts/a354366d5d104ba09659443aa3c0b208
+https://www.icloud.com/shortcuts/23411d569e884dcd90a11669aaa33300
+https://www.icloud.com/shortcuts/1d30f7f61d0d4d53b5afc5e824da2834
+https://www.icloud.com/shortcuts/b364d56f958648b4a43801e740e6e189
+
 ## Loop Follow 
 
 Using so many different apps as a parent or caregiver of a T1D can be very cumbersome. Add in the extra details from Looping
