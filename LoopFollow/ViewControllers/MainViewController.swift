@@ -11,7 +11,7 @@ import Charts
 import EventKit
 import ShareClient
 
-class MainViewController: UIViewController, UITableViewDataSource, ChartViewDelegate, UNUserNotificationCenterDelegate {
+class MainViewController: UIViewController, UITableViewDataSource, ChartViewDelegate, UNUserNotificationCenterDelegate, UITableViewDelegate {
     
     @IBOutlet weak var BGText: UILabel!
     @IBOutlet weak var DeltaText: UILabel!
@@ -133,6 +133,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         UserDefaultsRepository.infoNames.value.append("CAGE")
         UserDefaultsRepository.infoNames.value.append("Rec. Bolus")
         UserDefaultsRepository.infoNames.value.append("Pred.")
+        UserDefaultsRepository.infoNames.value.append("Cancel Override")
  
         // table view
         //infoTable.layer.borderColor = UIColor.darkGray.cgColor
@@ -143,6 +144,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         infoTable.tableFooterView = UIView(frame: .zero) // get rid of extra rows
         infoTable.bounces = false
         infoTable.addBorder(toSide: .Left, withColor: UIColor.darkGray.cgColor, andThickness: 2)
+        infoTable.delegate = self
         
         // initialize the tableData
         self.tableData = []
@@ -267,6 +269,60 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
    }
    
     // Info Table Functions
+     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+
+         if(cell.textLabel?.text  == "Override") {
+                 cell.textLabel?.textColor = UIColor.green
+             }
+             else if(cell.textLabel?.text  == "SAGE") {
+                 cell.textLabel?.textColor = UIColor.systemOrange
+             }
+             else if(cell.textLabel?.text  == "CAGE") {
+                     cell.textLabel?.textColor = UIColor.systemIndigo
+                 }
+
+             else{cell.textLabel?.textColor = UIColor.white}
+         
+          if(cell.textLabel?.text  == "Cancel Override" && currentOverride != 1) {
+                      cell.textLabel?.textColor = UIColor.red
+                  }
+         else if (cell.textLabel?.text  == "Cancel Override" && currentOverride != 1) {
+             cell.textLabel?.textColor = UIColor.black
+         }
+     }
+     
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+     let indexPath = tableView.indexPathForSelectedRow!
+     let currentCell = tableView.cellForRow(at: indexPath)!
+     let cellText = currentCell.textLabel!.text
+     let switchTitle = cellText
+     var shortcut: String? = nil
+         
+         if switchTitle == "Cancel Override"{
+             shortcut = "shortcuts://x-callback-url/run-shortcut?name=Cancel&x-success=LoopFollow://"
+         }
+         else if switchTitle == "Override"{
+             shortcut = "shortcuts://x-callback-url/run-shortcut?name=Override&x-success=LoopFollow://"
+         }
+         else if switchTitle == "CAGE"{
+             shortcut = "shortcuts://x-callback-url/run-shortcut?name=CAGE&x-success=LoopFollow://"
+         }
+         else if switchTitle == "SAGE"{
+             shortcut = "shortcuts://x-callback-url/run-shortcut?name=SAGE&x-success=LoopFollow://"
+         }
+         else{
+             shortcut = nil
+             }
+     if shortcut == nil{
+         print("empty")
+         print(indexPath.row)
+     }
+     else{
+         let url = URL(string: shortcut!)!
+         UIApplication.shared.open(url, options: [:], completionHandler: nil)
+         }
+     }
+     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         //return tableData.count
         return derivedTableData.count
