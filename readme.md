@@ -1,4 +1,4 @@
-##Shortcuts
+## Shortcuts
 
 To use this version of LoopFollow plese download the following iOS Shortcuts:
 https://www.icloud.com/shortcuts/a354366d5d104ba09659443aa3c0b208
