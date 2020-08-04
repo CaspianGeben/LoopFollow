@@ -1,10 +1,13 @@
 ## Shortcuts
 
-To use this version of LoopFollow plese download the following iOS Shortcuts:
+To use this version of LoopFollow please download the following iOS Shortcuts on your mobile:
+
 https://www.icloud.com/shortcuts/a354366d5d104ba09659443aa3c0b208
 https://www.icloud.com/shortcuts/23411d569e884dcd90a11669aaa33300
 https://www.icloud.com/shortcuts/1d30f7f61d0d4d53b5afc5e824da2834
 https://www.icloud.com/shortcuts/b364d56f958648b4a43801e740e6e189
+
+(Open this page on your phone and click on the links. If you have trouble installing shortcuts, make sure you run atleast one shortcut on your phone prior to clicking the links or read this article o MacWorld https://www.macworld.com/article/3447279/how-to-allow-untrusted-shortcuts-in-ios-13.html)
 
 ## Loop Follow 
 
