@@ -24,10 +24,10 @@ enum ChartSettingsChangeEnum: Int {
   case predictionToLoadChanged = 32
   case minBasalScaleChanged = 64
   case minBGScaleChanged = 128
-  case minBGValueChanged = 256
-  case overrideDisplayLocationChanged = 512
-  case lowLineChanged = 1024
-  case highLineChanged = 2048
+  case overrideDisplayLocationChanged = 256
+  case lowLineChanged = 512
+  case highLineChanged = 1024
+  case smallGraphHeight = 2048
 }
 
 // General Settings Flags
@@ -44,6 +44,7 @@ enum GeneralSettingsChangeEnum: Int {
    case screenlockSwitchStateChange = 512
     case showStatsChange = 1024
     case showSmallGraphChange = 2048
+    case useIFCCChange = 4096
 }
 
 class AppStateController {

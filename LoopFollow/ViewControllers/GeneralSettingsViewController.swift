@@ -53,18 +53,6 @@ class GeneralSettingsViewController: FormViewController {
                     guard let value = row.value else { return }
                     UserDefaultsRepository.backgroundRefresh.value = value
             }
-        <<< StepperRow("backgroundRefreshFrequency") { row in
-            row.title = "Refresh Minutes"
-            row.tag = "backgroundRefreshFrequency"
-            row.cell.stepper.stepValue = 0.25
-            row.cell.stepper.minimumValue = 0.25
-            row.cell.stepper.maximumValue = 10
-            row.value = Double(UserDefaultsRepository.backgroundRefreshFrequency.value)
-            row.hidden = "$backgroundRefresh == false"
-        }.onChange { [weak self] row in
-                guard let value = row.value else { return }
-                UserDefaultsRepository.backgroundRefreshFrequency.value = value
-        }
         <<< SwitchRow("persistentNotification") { row in
         row.title = "Persistent Notification"
         row.value = UserDefaultsRepository.persistentNotification.value
@@ -93,6 +81,19 @@ class GeneralSettingsViewController: FormViewController {
              if let appState = self!.appStateController {
                 appState.generalSettingsChanged = true
                 appState.generalSettingsChanges |= GeneralSettingsChangeEnum.showStatsChange.rawValue
+             }
+        }
+        <<< SwitchRow("useIFCC") { row in
+        row.title = "Use IFCC A1C"
+        row.value = UserDefaultsRepository.useIFCC.value
+        }.onChange { [weak self] row in
+            guard let value = row.value else { return }
+            UserDefaultsRepository.useIFCC.value = value
+            
+             // set the appstate to indicate settings change and flags
+             if let appState = self!.appStateController {
+                appState.generalSettingsChanged = true
+                appState.generalSettingsChanges |= GeneralSettingsChangeEnum.useIFCCChange.rawValue
              }
         }
         <<< SwitchRow("showSmallGraph") { row in

@@ -21,11 +21,30 @@ extension MainViewController {
         let now = date.timeIntervalSince1970
         let currentBG = bgs[bgs.count - 1].sgv
         let lastBG = bgs[bgs.count - 2].sgv
-        guard let deltas: [Int] = [
-            bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv,
-            bgs[bgs.count - 2].sgv - bgs[bgs.count - 3].sgv,
-            bgs[bgs.count - 3].sgv - bgs[bgs.count - 4].sgv
-            ] else {}
+        
+        var deltas: [Int] = []
+        if bgs.count > 3 {
+            deltas.append(bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv)
+            deltas.append(bgs[bgs.count - 2].sgv - bgs[bgs.count - 3].sgv)
+            deltas.append(bgs[bgs.count - 3].sgv - bgs[bgs.count - 4].sgv)
+        } else if bgs.count > 2 {
+            deltas.append(bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv)
+            deltas.append(bgs[bgs.count - 2].sgv - bgs[bgs.count - 3].sgv)
+            // Set remainder to match the last delta we have
+            deltas.append(bgs[bgs.count - 2].sgv - bgs[bgs.count - 3].sgv)
+        } else if bgs.count > 1 {
+            deltas.append(bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv)
+            // Set remainder to match the last delta we have
+            deltas.append(bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv)
+            deltas.append(bgs[bgs.count - 1].sgv - bgs[bgs.count - 2].sgv)
+        } else {
+            // We only have 1 reading, set all to 0.
+            deltas.append(0)
+            deltas.append(0)
+            deltas.append(0)
+        }
+        
+        
         let currentBGTime = bgs[bgs.count - 1].date
         var alarmTriggered = false
         var numLoops = 0
@@ -273,6 +292,17 @@ extension MainViewController {
                     return
                 }
             }
+            
+            // Check Pump
+            if UserDefaultsRepository.alertPump.value && !UserDefaultsRepository.alertPumpIsSnoozed.value {
+                let alertAt = Double(UserDefaultsRepository.alertPumpAt.value)
+                if latestPumpVolume <= alertAt {
+                    AlarmSound.whichAlarm = "Low Insulin Alert"
+                    if UserDefaultsRepository.alertPumpRepeat.value { numLoops = -1 }
+                    triggerAlarm(sound: UserDefaultsRepository.alertPumpSound.value, snooozedBGReadingTime: nil, overrideVolume: UserDefaultsRepository.overrideSystemOutputVolume.value, numLoops: numLoops)
+                    return
+                }
+            }
         }
         
         
@@ -285,39 +315,40 @@ extension MainViewController {
        
     func checkOverrideAlarms()
     {
-        
         if UserDefaultsRepository.alertSnoozeAllIsSnoozed.value { return }
         
-        // Make sure we have 2 values to compare
-        if overrideData.count < 2 { return }
+        let recentOverride = overrideGraphData.last
+        let recentStart: TimeInterval = recentOverride?.date ?? 0
+        let recentEnd: TimeInterval = recentOverride?.endDate ?? 0
+        let now = dateTimeUtils.getNowTimeIntervalUTC()
         
-        let latest = overrideData[overrideData.count - 1]
-        let prior = overrideData[overrideData.count - 2]
+        var triggerStart = false
+        var triggerEnd = false
         
-        // Make sure latest value is current within 10 minutes
-        if latest.date < dateTimeUtils.getNowTimeIntervalUTC() - 600 { return }
+        // Trigger newly started override
+        if now - recentStart > 0 && now - recentStart <= (15 * 60) && recentStart > lastOverrideAlarm {
+            triggerStart = true
+        } else if now - recentEnd > 0 && now - recentEnd <= (15 * 60) && recentEnd > lastOverrideAlarm {
+            triggerEnd = true
+        } else {
+            return
+        }
         
-        // make sure values are with 10 minutes of each other
-        if ( latest.date - prior.date ) > 600 { return }
-        
-        // make sure values are not the same
-        if latest.value == prior.value { return }
-        
+        let overrideName = recentOverride?.reason as! String
+       
         var numLoops = 0
-        if UserDefaultsRepository.alertOverrideStart.value && !UserDefaultsRepository.alertOverrideStartIsSnoozed.value {
-            if latest.value != 1.0 && lastOverrideStartTime != latest.date {
-                AlarmSound.whichAlarm = String(format: "%.0f%%", (latest.value * 100)) + " Override Started"
+        if UserDefaultsRepository.alertOverrideStart.value && !UserDefaultsRepository.alertOverrideStartIsSnoozed.value && triggerStart {
+            AlarmSound.whichAlarm = overrideName + " Override Started"
                 if UserDefaultsRepository.alertOverrideStartRepeat.value { numLoops = -1 }
-                triggerOneTimeAlarm(sound: UserDefaultsRepository.alertOverrideEndSound.value, overrideVolume: UserDefaultsRepository.overrideSystemOutputVolume.value, numLoops: numLoops)
-                lastOverrideStartTime = latest.date
-            }
-        } else if UserDefaultsRepository.alertOverrideEnd.value && !UserDefaultsRepository.alertOverrideEndIsSnoozed.value {
-            if latest.value == 1.0 && lastOverrideEndTime != latest.date {
-                AlarmSound.whichAlarm = "Override Ended"
+                triggerOneTimeAlarm(sound: UserDefaultsRepository.alertOverrideStartSound.value, overrideVolume: UserDefaultsRepository.overrideSystemOutputVolume.value, numLoops: numLoops)
+                lastOverrideStartTime = recentStart
+                lastOverrideAlarm = now
+        } else if UserDefaultsRepository.alertOverrideEnd.value && !UserDefaultsRepository.alertOverrideEndIsSnoozed.value && triggerEnd {
+                AlarmSound.whichAlarm = overrideName + " Override Ended"
                 if UserDefaultsRepository.alertOverrideEndRepeat.value { numLoops = -1 }
                 triggerOneTimeAlarm(sound: UserDefaultsRepository.alertOverrideEndSound.value, overrideVolume: UserDefaultsRepository.overrideSystemOutputVolume.value, numLoops: numLoops)
-                lastOverrideEndTime = latest.date
-            }
+                lastOverrideEndTime = recentEnd
+                lastOverrideAlarm = now
         }
     }
     
@@ -327,21 +358,39 @@ extension MainViewController {
         snoozer.updateDisplayWhenTriggered(bgVal: bgUnits.toDisplayUnits(String(bgData[bgData.count - 1].sgv)), directionVal: latestDirectionString ?? "", deltaVal: bgUnits.toDisplayUnits(latestDeltaString) ?? "", minAgoVal: latestMinAgoString ?? "", alertLabelVal: AlarmSound.whichAlarm)
         AlarmSound.setSoundFile(str: sound)
         AlarmSound.play(overrideVolume: overrideVolume, numLoops: numLoops)
+        startAlarmPlayingTimer()
     }
     
     func triggerAlarm(sound: String, snooozedBGReadingTime: TimeInterval?, overrideVolume: Bool, numLoops: Int)
     {
         guard let snoozer = self.tabBarController!.viewControllers?[2] as? SnoozeViewController else { return }
         snoozer.updateDisplayWhenTriggered(bgVal: bgUnits.toDisplayUnits(String(bgData[bgData.count - 1].sgv)), directionVal: latestDirectionString ?? "", deltaVal: bgUnits.toDisplayUnits(latestDeltaString) ?? "", minAgoVal: latestMinAgoString ?? "", alertLabelVal: AlarmSound.whichAlarm)
-        //snoozeTabItem.isEnabled = true;
         snoozer.SnoozeButton.isHidden = false
         snoozer.AlertLabel.isHidden = false
+        snoozer.clockLabel.isHidden = true
         tabBarController?.selectedIndex = 2
         if snooozedBGReadingTime != nil {
             UserDefaultsRepository.snoozedBGReadingTime.value = snooozedBGReadingTime
         }
         AlarmSound.setSoundFile(str: sound)
         AlarmSound.play(overrideVolume: overrideVolume, numLoops: numLoops)
+        
+        let bgSeconds = bgData.last!.date
+        let now = Date().timeIntervalSince1970
+        let secondsAgo = now - bgSeconds
+        var timerLength = 290 - secondsAgo
+        if timerLength < 10 { timerLength = 290}
+        startAlarmPlayingTimer(time: timerLength)
+    }
+    
+    func stopAlarmAtNextReading(){
+        
+        AlarmSound.whichAlarm = "none"
+        guard let snoozer = self.tabBarController!.viewControllers?[2] as? SnoozeViewController else { return }
+        snoozer.updateDisplayWhenTriggered(bgVal: bgUnits.toDisplayUnits(String(bgData[bgData.count - 1].sgv)), directionVal: latestDirectionString ?? "", deltaVal: bgUnits.toDisplayUnits(latestDeltaString) ?? "", minAgoVal: latestMinAgoString ?? "", alertLabelVal: AlarmSound.whichAlarm)
+        snoozer.SnoozeButton.isHidden = true
+        snoozer.AlertLabel.isHidden = true
+        AlarmSound.stop()
     }
     
     func clearOldSnoozes(){
@@ -450,6 +499,15 @@ extension MainViewController {
 
         }
         
+        if date > UserDefaultsRepository.alertPumpSnoozedTime.value ?? date {
+            UserDefaultsRepository.alertPumpSnoozedTime.setNil(key: "alertPumpSnoozedTime")
+            UserDefaultsRepository.alertPumpIsSnoozed.value = false
+            alarms.reloadSnoozeTime(key: "alertPumpSnoozedTime", setNil: true)
+            alarms.reloadIsSnoozed(key: "alertPumpIsSnoozed", value: false)
+
+        }
+        
+        
       }
     
     func checkQuietHours() {
@@ -493,6 +551,7 @@ extension MainViewController {
         }
         
     }
+    
     
     func speakBG(sgv: Int) {
            var speechSynthesizer = AVSpeechSynthesizer()

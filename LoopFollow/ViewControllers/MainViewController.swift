@@ -11,6 +11,7 @@ import Charts
 import EventKit
 import ShareClient
 import UserNotifications
+import Photos
 
 class MainViewController: UIViewController, UITableViewDataSource, ChartViewDelegate, UNUserNotificationCenterDelegate {
     
@@ -34,6 +35,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     @IBOutlet weak var statsStdDev: UILabel!
     @IBOutlet weak var serverText: UILabel!
     @IBOutlet weak var statsView: UIView!
+    @IBOutlet weak var smallGraphHeightConstraint: NSLayoutConstraint!
     
       
     // Data Table class
@@ -74,9 +76,10 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     // check every 30 Seconds whether new bgvalues should be retrieved
     let timeInterval: TimeInterval = 30.0
     
-    // View Delay Timer
-    var viewTimer = Timer()
-    let viewTimeInterval: TimeInterval = UserDefaultsRepository.viewRefreshDelay.value
+    // Min Ago Timer
+    var minAgoTimer = Timer()
+    var minAgoTimeInterval: TimeInterval = 1.0
+    
     
     // Check Alarms Timer
     // Don't check within 1 minute of alarm triggering to give the snoozer time to save data
@@ -84,6 +87,15 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     var checkAlarmInterval: TimeInterval = 60.0
     
     var calTimer = Timer()
+    
+    var bgTimer = Timer()
+    var cageSageTimer = Timer()
+    var profileTimer = Timer()
+    var deviceStatusTimer = Timer()
+    var treatmentsTimer = Timer()
+    var alarmTimer = Timer()
+    var calendarTimer = Timer()
+    var graphNowTimer = Timer()
     
     // Info Table Setup
     var tableData : [infoData] = []
@@ -93,10 +105,15 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     var basalProfile: [basalProfileStruct] = []
     var basalData: [basalGraphStruct] = []
     var basalScheduleData: [basalGraphStruct] = []
-    var bolusData: [bolusCarbGraphStruct] = []
-    var carbData: [bolusCarbGraphStruct] = []
-    var overrideData: [DataStructs.overrideGraphStruct] = []
+    var bolusData: [bolusGraphStruct] = []
+    var carbData: [carbGraphStruct] = []
+    var overrideGraphData: [DataStructs.overrideStruct] = []
     var predictionData: [ShareGlucoseData] = []
+    var bgCheckData: [ShareGlucoseData] = []
+    var suspendGraphData: [DataStructs.timestampOnlyStruct] = []
+    var resumeGraphData: [DataStructs.timestampOnlyStruct] = []
+    var sensorStartGraphData: [DataStructs.timestampOnlyStruct] = []
+    var noteGraphData: [DataStructs.noteStruct] = []
     var chartData = LineChartData()
     var newBGPulled = false
     var lastCalDate: Double = 0
@@ -107,9 +124,12 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     var latestLoopTime: Double = 0
     var latestCOB = ""
     var latestBasal = ""
+    var latestPumpVolume: Double = 50.0
     var latestIOB = ""
     var lastOverrideStartTime: TimeInterval = 0
     var lastOverrideEndTime: TimeInterval = 0
+    var topBG: Float = UserDefaultsRepository.minBGScale.value
+    var lastOverrideAlarm: TimeInterval = 0
     
     // share
     var bgDataShare: [ShareGlucoseData] = []
@@ -153,6 +173,9 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
             self.tableData.append(infoData(name:UserDefaultsRepository.infoNames.value[i], value:""))
         }
         createDerivedData()
+        
+        smallGraphHeightConstraint.constant = CGFloat(UserDefaultsRepository.smallGraphHeight.value)
+        self.view.layoutIfNeeded()
       
         // TODO: need non-us server ?
         let shareUserName = UserDefaultsRepository.shareUserName.value
@@ -198,11 +221,13 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         // setup display for NS vs Dex
         showHideNSDetails()
         
-        // Load Data
-        if (UserDefaultsRepository.url.value != "" || (UserDefaultsRepository.shareUserName.value != "" && UserDefaultsRepository.sharePassword.value != "")) && firstGraphLoad {
-            nightscoutLoader()
-        }
+        // Load Startup Data
+        restartAllTimers()
+        
     }
+    
+
+    
     
     override func viewWillAppear(_ animated: Bool) {
         // set screen lock
@@ -216,6 +241,11 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
               
               // can look at settings flags to be more fine tuned
               self.updateBGGraphSettings()
+            
+            if ChartSettingsChangeEnum.smallGraphHeight.rawValue != 0 {
+                smallGraphHeightConstraint.constant = CGFloat(UserDefaultsRepository.smallGraphHeight.value)
+                self.view.layoutIfNeeded()
+            }
               
               // reset the app state
               appState.chartSettingsChanged = false
@@ -225,7 +255,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
            
               // settings for appBadge changed
               if appState.generalSettingsChanges & GeneralSettingsChangeEnum.appBadgeChange.rawValue != 0 {
-                 self.nightscoutLoader(forceLoad: true)
+                 
               }
               
               // settings for textcolor changed
@@ -237,7 +267,12 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
             if appState.generalSettingsChanges & GeneralSettingsChangeEnum.showStatsChange.rawValue != 0 {
                statsView.isHidden = !UserDefaultsRepository.showStats.value
             }
-            
+
+            // settings for useIFCC changed
+            if appState.generalSettingsChanges & GeneralSettingsChangeEnum.useIFCCChange.rawValue != 0 {
+                updateStats()
+            }
+
             // settings for showSmallGraph changed
             if appState.generalSettingsChanges & GeneralSettingsChangeEnum.showSmallGraphChange.rawValue != 0 {
                 BGChartFull.isHidden = !UserDefaultsRepository.showSmallGraph.value
@@ -284,70 +319,6 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         return cell
     }
     
-    
-    // NS Loader Timer
-    fileprivate func startTimer(time: TimeInterval) {
-        timer = Timer.scheduledTimer(timeInterval: time,
-                                     target: self,
-                                     selector: #selector(MainViewController.timerDidEnd(_:)),
-                                     userInfo: nil,
-                                     repeats: true)
-    }
-    
-    // Check Alarm Timer
-    func startCheckAlarmTimer(time: TimeInterval) {
-        
-        checkAlarmTimer = Timer.scheduledTimer(timeInterval: time,
-                                     target: self,
-                                     selector: #selector(MainViewController.checkAlarmTimerDidEnd(_:)),
-                                     userInfo: nil,
-                                     repeats: false)
-    }
-    
-    // NS Loader Timer
-     func startViewTimer(time: TimeInterval) {
-        viewTimer = Timer.scheduledTimer(timeInterval: time,
-                                     target: self,
-                                     selector: #selector(MainViewController.viewTimerDidEnd(_:)),
-                                     userInfo: nil,
-                                     repeats: false)
-        
-    }
-    
-    // Timer to allow us to write min ago calendar entries but not update them every 30 seconds
-    fileprivate func startCalTimer(time: TimeInterval) {
-        calTimer = Timer.scheduledTimer(timeInterval: time,
-                                     target: self,
-                                     selector: #selector(MainViewController.calTimerDidEnd(_:)),
-                                     userInfo: nil,
-                                     repeats: false)
-    }
-    
-    // Nothing should be done when this timer ends because it just blocks the alarms from firing when it's active
-    @objc func calTimerDidEnd(_ timer:Timer) {
-       // if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "Calendar Timer Ended") }
-    }
-    
-    // This delays a few things to hopefully all all data to arrive.
-    @objc func viewTimerDidEnd(_ timer:Timer) {
-//        if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "View timer ended") }
-        if bgData.count > 0 {
-            self.checkAlarms(bgs: bgData)
-            self.updateMinAgo()
-            // self.updateBadge(val: bgData[bgData.count - 1].sgv)
-            //self.viewUpdateNSBG()
-            if UserDefaultsRepository.writeCalendarEvent.value {
-                self.writeCalendar()
-            }
-        }
-    }
-    
-    
-    // Nothing should be done when this timer ends because it just blocks the alarms from firing when it's active
-    @objc func checkAlarmTimerDidEnd(_ timer:Timer) {
-//        if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "Check alarm timer ended") }
-    }
-    
     @objc func appMovedToBackground() {
         // Allow screen to turn off
         UIApplication.shared.isIdleTimerDisabled = false;
@@ -358,11 +329,9 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         // Cancel the current timer and start a fresh background timer using the settings value only if background task is enabled
         
         if UserDefaultsRepository.backgroundRefresh.value {
-            timer.invalidate()
             backgroundTask.startBackgroundTask()
-            let refresh = UserDefaultsRepository.backgroundRefreshFrequency.value * 60
-            startTimer(time: TimeInterval(refresh))
         }
+        
     }
 
     @objc func appCameToForeground() {
@@ -372,24 +341,17 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         // Cancel the background tasks, start a fresh timer
         if UserDefaultsRepository.backgroundRefresh.value {
             backgroundTask.stopBackgroundTask()
-            timer.invalidate()
-        }
-        if !timer.isValid {
-            startTimer(time: timeInterval)
         }
         
+        restartAllTimers()
+
     }
     
     @objc override func viewDidAppear(_ animated: Bool) {
         showHideNSDetails()
     }
     
-    // Check for new data when timer ends
-    @objc func timerDidEnd(_ timer:Timer) {
-//        if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "Main timer ended") }
-        updateMinAgo()
-        nightscoutLoader()
-    }
+    
 
     //update Min Ago Text. We need to call this separately because it updates between readings
     func updateMinAgo(){
@@ -438,6 +400,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     }
     
     func updateBadge(val: Int) {
+        DispatchQueue.main.async {
         if UserDefaultsRepository.appBadge.value {
             let latestBG = String(val)
             UIApplication.shared.applicationIconBadgeNumber = Int(bgUnits.removePeriodForBadge(bgUnits.toDisplayUnits(latestBG))) ?? val
@@ -445,6 +408,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
             UIApplication.shared.applicationIconBadgeNumber = 0
         }
 //        if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "updated badge") }
+        }
     }
     
     
@@ -476,6 +440,145 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
         return graphics[value]!
     }
     
+    // Test code to save an image of graph for viewing on watch
+    func saveChartImage() {
+        var originalColor = BGChart.backgroundColor
+        BGChart.backgroundColor = NSUIColor.black
+        guard var image = BGChart.getChartImage(transparent: true) else {
+            BGChart.backgroundColor = originalColor
+            return }
+        var newImage = image.resizeImage(448.0, landscape: false, opaque: false, contentMode: .scaleAspectFit)
+        createAlbums(name1: "Loop Follow", name2: "Loop Follow Old")
+        if let collection1 = fetchAssetCollection("Loop Follow"), let collection2 = fetchAssetCollection("Loop Follow Old") {
+            deleteExistingImagesFromCollection(collection: collection1)
+            saveImageToAssetCollection(image, collection1: collection1, collection2: collection2)
+        }
+        
+        BGChart.backgroundColor = originalColor
+    }
+    
+    func createAlbums(name1: String, name2: String) {
+        if let collection1 = fetchAssetCollection(name1) {
+        } else {
+            // Album does not exist, create it and attempt to save the image
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: name1)
+            }, completionHandler: { (success: Bool, error: Error?) in
+                guard success == true && error == nil else {
+                    NSLog("Could not create the album")
+                    if let err = error {
+                        NSLog("Error: \(err)")
+                    }
+                    return
+                }
+
+                if let newCollection1 = self.fetchAssetCollection(name1) {
+                }
+            })
+        }
+        
+        if let collection2 = fetchAssetCollection(name2) {
+        } else {
+            // Album does not exist, create it and attempt to save the image
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: name2)
+            }, completionHandler: { (success: Bool, error: Error?) in
+                guard success == true && error == nil else {
+                    NSLog("Could not create the album")
+                    if let err = error {
+                        NSLog("Error: \(err)")
+                    }
+                    return
+                }
+
+                if let newCollection2 = self.fetchAssetCollection(name2) {
+                }
+            })
+        }
+    }
+    
+    func fetchAssetCollection(_ name: String) -> PHAssetCollection? {
+
+        let fetchOption = PHFetchOptions()
+        fetchOption.predicate = NSPredicate(format: "title == '" + name + "'")
+
+        let fetchResult = PHAssetCollection.fetchAssetCollections(
+            with: PHAssetCollectionType.album,
+            subtype: PHAssetCollectionSubtype.albumRegular,
+            options: fetchOption)
+
+        return fetchResult.firstObject
+    }
+    
+    func deleteOldImages() {
+        if let collection = fetchAssetCollection("Loop Follow Old") {
+            let library = PHPhotoLibrary.shared()
+            library.performChanges({
+                let fetchOptions = PHFetchOptions()
+                let allPhotos = PHAsset.fetchAssets(in: collection, options: .none)
+                PHAssetChangeRequest.deleteAssets(allPhotos)
+            }, completionHandler: { (success: Bool, error: Error?) in
+                guard success == true && error == nil else {
+                    NSLog("Could not delete the image")
+                    if let err = error {
+                        NSLog("Error: " + err.localizedDescription)
+                    }
+                    return
+                }
+            })
+        }
+        
+        self.sendNotification(self, title: "Watch Face Cleanup", subtitle: "", body: "Delete old watch face graph images", timer: 86400)
+        
+        
+    }
+    
+    func deleteExistingImagesFromCollection(collection: PHAssetCollection) {
+        
+        // This code removes existing photos from collection but does not delete them
+        if collection.estimatedAssetCount < 1 { return }
+
+        PHPhotoLibrary.shared().performChanges( {
+
+            if let request = PHAssetCollectionChangeRequest(for: collection) {
+                request.removeAssets(at: [0])
+            }
+
+        }, completionHandler: { (success: Bool, error: Error?) in
+            guard success == true && error == nil else {
+                NSLog("Could not delete the image")
+                if let err = error {
+                    NSLog("Error: " + err.localizedDescription)
+                }
+                return
+            }
+        })
+    }
+
+    func saveImageToAssetCollection(_ image: UIImage, collection1: PHAssetCollection, collection2: PHAssetCollection) {
+        
+        PHPhotoLibrary.shared().performChanges({
+            
+            let creationRequest = PHAssetCreationRequest.creationRequestForAsset(from: image)
+            if let request = PHAssetCollectionChangeRequest(for: collection1),
+               let placeHolder = creationRequest.placeholderForCreatedAsset {
+                request.addAssets([placeHolder] as NSFastEnumeration)
+            }
+            if let request2 = PHAssetCollectionChangeRequest(for: collection2),
+               let placeHolder2 = creationRequest.placeholderForCreatedAsset {
+                request2.addAssets([placeHolder2] as NSFastEnumeration)
+            }
+        }, completionHandler: { (success: Bool, error: Error?) in
+            guard success == true && error == nil else {
+                NSLog("Could not save the image")
+                if let err = error {
+                    NSLog("Error: " + err.localizedDescription)
+                }
+                return
+            }
+        })
+    }
+    
     // Write calendar
     func writeCalendar() {
         if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "Write calendar start") }
@@ -483,6 +586,8 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
             if !granted { return }
             
             if UserDefaultsRepository.calendarIdentifier.value == "" { return }
+            
+            if self.bgData.count < 1 { return }
                 
             // This lets us fire the method to write Min Ago entries only once a minute starting after 6 minutes but allows new readings through
             if self.lastCalDate == self.bgData[self.bgData.count - 1].date
@@ -581,6 +686,14 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
                     //if UserDefaultsRepository.debugLog.value { self.writeDebugLog(value: "Error: Calendar Write") }
                 }
             
+            if UserDefaultsRepository.saveImage.value {
+                DispatchQueue.main.async {
+                    self.saveChartImage()
+                }
+                    
+            }
+            
+            
         }
     }
     
@@ -589,7 +702,7 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     {
         if UserDefaultsRepository.persistentNotification.value && bgTime > UserDefaultsRepository.persistentNotificationLastBGTime.value && bgData.count > 0 {
             guard let snoozer = self.tabBarController!.viewControllers?[2] as? SnoozeViewController else { return }
-            snoozer.sendNotification(self, bgVal: bgUnits.toDisplayUnits(String(bgData[bgData.count - 1].sgv)), directionVal: latestDirectionString, deltaVal: latestDeltaString, minAgoVal: latestMinAgoString, alertLabelVal: "Latest BG")
+            snoozer.sendNotification(self, bgVal: bgUnits.toDisplayUnits(String(bgData[bgData.count - 1].sgv)), directionVal: latestDirectionString, deltaVal: bgUnits.toDisplayUnits(String(latestDeltaString)), minAgoVal: latestMinAgoString, alertLabelVal: "Latest BG")
         }
     }
     
@@ -601,18 +714,22 @@ class MainViewController: UIViewController, UITableViewDataSource, ChartViewDele
     
     
     // General Notifications
-    func sendNotification(title: String, body: String)
-    {
-       // UNUserNotificationCenter.current().delegate = self
+    
+    func sendNotification(_ sender: Any, title: String, subtitle: String, body: String, timer: TimeInterval) {
+        
+        UNUserNotificationCenter.current().delegate = self
         
         let content = UNMutableNotificationContent()
         content.title = title
+        content.subtitle = subtitle
         content.body = body
+        content.categoryIdentifier = "category"
         content.sound = .default
         
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timer, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        
         
     }
     
